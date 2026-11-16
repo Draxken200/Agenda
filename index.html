@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Mi Agenda</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="icon-192.png">
+<style>
+:root{--r:#e11d2e;--card:rgba(18,18,18,.86);--tx:#f4f4f4;--mut:#a8a8a8}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Comic Sans MS","Comic Sans","Chalkboard SE","Comic Neue",cursive;color:var(--tx);background:#000 url(fondo.jpg) center top/cover fixed;min-height:100vh;padding:env(safe-area-inset-top) 0 90px}
+body::before{content:"";position:fixed;inset:0;background:rgba(0,0,0,.74);z-index:-1}
+header{display:flex;align-items:center;gap:8px;padding:12px 14px}
+h1{margin:0;font-size:22px;flex:1;color:var(--r)}
+button,select,input,textarea{font:inherit;color:var(--tx)}
+button{background:#1a1a1a;border:1px solid #444;border-radius:10px;padding:8px 12px;cursor:pointer}
+button.on{background:var(--r);border-color:var(--r)}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--r);outline-offset:2px}
+.bar{display:flex;gap:6px;padding:4px 14px;overflow-x:auto}
+.bar button{white-space:nowrap}
+#hot,#al{margin:10px 14px;padding:12px;border-radius:12px;background:var(--r);font-weight:bold}
+#al{position:fixed;left:0;right:0;top:10px;z-index:9;box-shadow:0 0 30px var(--r)}
+#list{padding:6px 14px;display:grid;gap:10px;max-width:760px;margin:auto}
+.card{background:var(--card);border:1px solid #333;border-left:5px solid #555;border-radius:12px;padding:12px}
+.card.p2{border-left-color:#e8a317}.card.p3{border-left-color:var(--r)}
+.card small,.mut{color:var(--mut)}
+.card p{margin:6px 0;white-space:pre-wrap}
+label{display:flex;gap:8px;padding:5px 0;align-items:center}
+input[type=checkbox]{accent-color:var(--r);width:20px;height:20px}
+.dn{text-decoration:line-through;color:var(--mut)}
+.fl{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.fl img,.fl video{max-width:130px;max-height:110px;border-radius:8px}
+.ac{display:flex;gap:6px;margin-top:8px}
+#add{position:fixed;right:18px;bottom:calc(18px + env(safe-area-inset-bottom));width:60px;height:60px;border-radius:50%;background:var(--r);border:0;font-size:30px;box-shadow:0 4px 18px rgba(225,29,46,.6)}
+dialog{background:#0d0d0d;color:var(--tx);border:1px solid var(--r);border-radius:14px;width:min(94vw,520px);max-height:90vh;padding:14px}
+dialog::backdrop{background:rgba(0,0,0,.8)}
+dialog input,dialog select,dialog textarea{width:100%;background:#1a1a1a;border:1px solid #444;border-radius:8px;padding:8px;margin:4px 0 10px}
+dialog .row{display:flex;gap:8px}
+.hi{display:flex;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid #333}
+.hi span{flex:1;font-size:14px}
+</style></head><body>
+<header><h1>Mi Agenda</h1><button onclick="notif()" title="Activar avisos">🔔</button><button onclick="hist()" title="Historial">🕘</button></header>
+<div class="bar" id="sp"></div>
+<div class="bar" id="zn"></div>
+<div id="hot" hidden></div>
+<div id="al" hidden></div>
+<main id="list"></main>
+<button id="add" onclick="openF()" aria-label="Agregar">＋</button>
+
+<dialog id="dlg">
+<input type="hidden" id="id">
+<div class="row"><div style="flex:1">Tipo<select id="ft"><option value="nota">📝 Nota</option><option value="lista">✅ Lista</option><option value="rec">⏰ Recordatorio</option></select></div>
+<div style="flex:1">Zona<select id="fz"></select></div></div>
+Espacio<select id="fs"><option value="mio">🔒 Mío (solo yo)</option><option value="comp">👥 Compartido</option></select>
+Título<input id="ti">
+Texto<textarea id="tx" rows="3"></textarea>
+Lista (un elemento por línea)<textarea id="ch" rows="3"></textarea>
+<div class="row"><div style="flex:1">Fecha<input type="date" id="dt"></div><div style="flex:1">Hora<input type="time" id="tm"></div></div>
+Prioridad<select id="pr"><option value="1">Normal</option><option value="2">Media</option><option value="3">🔥 Gran prioridad</option></select>
+Adjuntar archivos<input type="file" id="ff" multiple>
+Tomar foto<input type="file" id="fc" accept="image/*" capture="environment">
+<div class="row"><button class="on" onclick="ok()" style="flex:1">Guardar</button><button onclick="dlg.close()" style="flex:1">Cancelar</button></div>
+</dialog>
+
+<dialog id="hd"><b>Historial</b><div id="hl"></div>
+<div class="row" style="margin-top:10px"><button onclick="S.log=[];save();hist()" style="flex:1">Borrar todo</button><button onclick="hd.close()" style="flex:1">Cerrar</button></div></dialog>
+
+<script>
+const $=s=>document.querySelector(s),dlg=$("#dlg"),hd=$("#hd");
+const ZONES=["Universidad","Casa","Trabajo","Personal"];
+let S={items:[],log:[]};
+try{S=JSON.parse(localStorage.agenda)||S}catch(e){}
+let sp="mio",zn="Todas";
+const save=()=>{try{localStorage.agenda=JSON.stringify(S)}catch(e){}};
+const log=t=>{S.log.unshift({ts:new Date().toLocaleString(),t});save()};
+const esc=s=>String(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const ld=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+
+/* archivos (fotos, videos, documentos) guardados en el equipo */
+const idb=new Promise(r=>{const q=indexedDB.open("agenda",1);q.onupgradeneeded=()=>q.result.createObjectStore("f");q.onsuccess=()=>r(q.result)});
+const fput=async(k,b)=>{const d=await idb;d.transaction("f","readwrite").objectStore("f").put(b,k)};
+const fget=async k=>{const d=await idb;return new Promise(r=>{const q=d.transaction("f").objectStore("f").get(k);q.onsuccess=()=>r(q.result)})};
+const fdel=async k=>{const d=await idb;d.transaction("f","readwrite").objectStore("f").delete(k)};
+
+const card=i=>`<div class="card p${i.pr}"><b>${{nota:"📝",lista:"✅",rec:"⏰"}[i.type]} ${esc(i.title)}</b> <small>${i.zn}${i.date?" · "+i.date:""}${i.time?" "+i.time:""}</small>
+${i.text?`<p>${esc(i.text)}</p>`:""}
+${(i.chk||[]).map((c,n)=>`<label><input type="checkbox" ${c.d?"checked":""} onchange="tg(${i.id},${n})"><span class="${c.d?"dn":""}">${esc(c.t)}</span></label>`).join("")}
+<div class="fl" id="f${i.id}"></div>
+<div class="ac"><button onclick="openF(${i.id})">Editar</button><button onclick="del(${i.id})">Borrar</button></div></div>`;
+
+function render(){
+ $("#sp").innerHTML=[["mio","🔒 Mío"],["comp","👥 Compartido"]].map(([k,l])=>`<button class="${sp==k?"on":""}" onclick="sp='${k}';render()">${l}</button>`).join("");
+ $("#zn").innerHTML=["Todas",...ZONES].map(z=>`<button class="${zn==z?"on":""}" onclick="zn='${z}';render()">${z}</button>`).join("");
+ const today=ld(new Date());
+ const L=S.items.filter(i=>i.sp==sp&&(zn=="Todas"||i.zn==zn)).sort((a,b)=>((a.date||"9")+(a.time||""))>((b.date||"9")+(b.time||""))?1:-1);
+ const hot=S.items.filter(i=>i.date==today&&i.pr==3);
+ $("#hot").innerHTML=hot.map(i=>`🔥 GRAN PRIORIDAD HOY: ${esc(i.title)}${i.time?" a las "+i.time:""}`).join("<br>");
+ $("#hot").hidden=!hot.length;
+ $("#list").innerHTML=L.map(card).join("")||'<p class="mut">Aquí no hay nada todavía. Toca ＋ para agregar.</p>';
+ files();
+}
+async function files(){for(const i of S.items)for(const k of i.fl||[]){const e=document.getElementById("f"+i.id);if(!e)continue;const b=await fget(k);if(!b)continue;const u=URL.createObjectURL(b);
+ e.insertAdjacentHTML("beforeend",b.type.startsWith("image")?`<img src="${u}">`:b.type.startsWith("video")?`<video src="${u}" controls></video>`:`<a href="${u}" download="${esc(b.name||"archivo")}">📎 ${esc(b.name||"archivo")}</a>`)}}
+function tg(id,n){const i=S.items.find(x=>x.id==id);i.chk[n].d=!i.chk[n].d;log((i.chk[n].d?"Marcó: ":"Desmarcó: ")+i.chk[n].t);save();render()}
+async function del(id){if(!confirm("¿Borrar este elemento?"))return;const i=S.items.find(x=>x.id==id);for(const k of i.fl||[])await fdel(k);S.items=S.items.filter(x=>x.id!=id);log("Borró: "+i.title);save();render()}
+
+function openF(id){
+ $("#fz").innerHTML=ZONES.map(z=>`<option>${z}</option>`).join("");
+ const i=S.items.find(x=>x.id==id)||{};
+ $("#id").value=i.id||"";$("#ft").value=i.type||"nota";$("#fz").value=i.zn||(zn=="Todas"?"Casa":zn);$("#fs").value=i.sp||sp;
+ $("#ti").value=i.title||"";$("#tx").value=i.text||"";$("#ch").value=(i.chk||[]).map(c=>c.t).join("\n");
+ $("#dt").value=i.date||"";$("#tm").value=i.time||"";$("#pr").value=i.pr||1;$("#ff").value="";$("#fc").value="";
+ dlg.showModal();
+}
+async function ok(){
+ const id=$("#id").value?+$("#id").value:Date.now(),old=S.items.find(x=>x.id==id),fl=old?(old.fl||[]):[];
+ for(const f of [...$("#ff").files,...$("#fc").files]){const k=id+"_"+fl.length+"_"+Date.now();await fput(k,f);fl.push(k)}
+ const chk=$("#ch").value.split("\n").map(x=>x.trim()).filter(Boolean).map(t=>{const o=old&&(old.chk||[]).find(c=>c.t==t);return{t,d:o?o.d:false}});
+ const same=old&&old.date==$("#dt").value&&old.time==$("#tm").value;
+ const it={id,sp:$("#fs").value,zn:$("#fz").value,type:$("#ft").value,title:$("#ti").value||"Sin título",text:$("#tx").value,chk,date:$("#dt").value,time:$("#tm").value,pr:+$("#pr").value,fl,fired:same?old.fired:false};
+ if(old)Object.assign(old,it);else S.items.push(it);
+ log((old?"Editó: ":"Creó: ")+it.title);save();dlg.close();render();
+}
+
+/* historial editable */
+function hist(){
+ $("#hl").innerHTML=S.log.map((h,n)=>`<div class="hi"><span>${esc(h.ts)}<br>${esc(h.t)}</span><button onclick="hE(${n})">✎</button><button onclick="hD(${n})">🗑</button></div>`).join("")||'<p class="mut">Todavía no hay movimientos.</p>';
+ if(!hd.open)hd.showModal();
+}
+function hE(n){const t=prompt("Editar texto",S.log[n].t);if(t!==null){S.log[n].t=t;save();hist()}}
+function hD(n){S.log.splice(n,1);save();hist()}
+
+/* recordatorios tipo alarma (suenan mientras la app está abierta) */
+function beep(){try{const c=new AudioContext();[0,.4,.8].forEach(t=>{const o=c.createOscillator();o.connect(c.destination);o.frequency.value=880;o.start(c.currentTime+t);o.stop(c.currentTime+t+.25)})}catch(e){}}
+function alarm(i){beep();navigator.vibrate&&navigator.vibrate([400,200,400,200,400]);
+ if("Notification"in window&&Notification.permission=="granted")new Notification("⏰ "+i.title,{body:i.text||""});
+ $("#al").innerHTML=`⏰ ${esc(i.title)} <button onclick="this.parentNode.hidden=true">Listo</button>`;$("#al").hidden=false;log("Sonó recordatorio: "+i.title)}
+function tick(){const n=new Date(),d=ld(n),t=n.toTimeString().slice(0,5);
+ S.items.forEach(i=>{if(i.type=="rec"&&i.date&&i.time&&!i.fired&&(i.date<d||(i.date==d&&i.time<=t))){i.fired=true;save();alarm(i)}})}
+setInterval(tick,15000);
+function notif(){"Notification"in window?Notification.requestPermission().then(p=>alert(p=="granted"?"Avisos activados":"Avisos bloqueados")):alert("Este equipo no permite avisos")}
+
+if("serviceWorker"in navigator)navigator.serviceWorker.register("sw.js");
+render();tick();
+</script></body></html>
