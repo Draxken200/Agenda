@@ -39,7 +39,7 @@ dialog .row{display:flex;gap:8px}
 .hi{display:flex;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid #333}
 .hi span{flex:1;font-size:14px}
 </style></head><body>
-<header><h1>Mi Agenda</h1><button onclick="notif()" title="Activar avisos">🔔</button><button onclick="hist()" title="Historial">🕘</button></header>
+<header><h1>Mi Agenda</h1><button id="acc" onclick="acct()">☁️ Entrar</button><button onclick="notif()" title="Activar avisos">🔔</button><button onclick="hist()" title="Historial">🕘</button></header>
 <div class="bar" id="sp"></div>
 <div class="bar" id="zn"></div>
 <div id="hot" hidden></div>
@@ -59,6 +59,7 @@ Lista (un elemento por línea)<textarea id="ch" rows="3"></textarea>
 Prioridad<select id="pr"><option value="1">Normal</option><option value="2">Media</option><option value="3">🔥 Gran prioridad</option></select>
 Adjuntar archivos<input type="file" id="ff" multiple>
 Tomar foto<input type="file" id="fc" accept="image/*" capture="environment">
+<small class="mut">Los adjuntos se guardan solo en este equipo.</small>
 <div class="row"><button class="on" onclick="ok()" style="flex:1">Guardar</button><button onclick="dlg.close()" style="flex:1">Cancelar</button></div>
 </dialog>
 
@@ -101,8 +102,8 @@ function render(){
 }
 async function files(){for(const i of S.items)for(const k of i.fl||[]){const e=document.getElementById("f"+i.id);if(!e)continue;const b=await fget(k);if(!b)continue;const u=URL.createObjectURL(b);
  e.insertAdjacentHTML("beforeend",b.type.startsWith("image")?`<img src="${u}">`:b.type.startsWith("video")?`<video src="${u}" controls></video>`:`<a href="${u}" download="${esc(b.name||"archivo")}">📎 ${esc(b.name||"archivo")}</a>`)}}
-function tg(id,n){const i=S.items.find(x=>x.id==id);i.chk[n].d=!i.chk[n].d;log((i.chk[n].d?"Marcó: ":"Desmarcó: ")+i.chk[n].t);save();render()}
-async function del(id){if(!confirm("¿Borrar este elemento?"))return;const i=S.items.find(x=>x.id==id);for(const k of i.fl||[])await fdel(k);S.items=S.items.filter(x=>x.id!=id);log("Borró: "+i.title);save();render()}
+function tg(id,n){const i=S.items.find(x=>x.id==id);i.chk[n].d=!i.chk[n].d;log((i.chk[n].d?"Marcó: ":"Desmarcó: ")+i.chk[n].t);save();push(i);render()}
+async function del(id){if(!confirm("¿Borrar este elemento?"))return;const i=S.items.find(x=>x.id==id);for(const k of i.fl||[])await fdel(k);rem(i);S.items=S.items.filter(x=>x.id!=id);log("Borró: "+i.title);save();render()}
 
 function openF(id){
  $("#fz").innerHTML=ZONES.map(z=>`<option>${z}</option>`).join("");
@@ -118,7 +119,9 @@ async function ok(){
  const chk=$("#ch").value.split("\n").map(x=>x.trim()).filter(Boolean).map(t=>{const o=old&&(old.chk||[]).find(c=>c.t==t);return{t,d:o?o.d:false}});
  const same=old&&old.date==$("#dt").value&&old.time==$("#tm").value;
  const it={id,sp:$("#fs").value,zn:$("#fz").value,type:$("#ft").value,title:$("#ti").value||"Sin título",text:$("#tx").value,chk,date:$("#dt").value,time:$("#tm").value,pr:+$("#pr").value,fl,fired:same?old.fired:false};
+ if(old&&old.sp!=it.sp)rem({id,sp:old.sp});
  if(old)Object.assign(old,it);else S.items.push(it);
+ push(it);
  log((old?"Editó: ":"Creó: ")+it.title);save();dlg.close();render();
 }
 
@@ -139,6 +142,52 @@ function tick(){const n=new Date(),d=ld(n),t=n.toTimeString().slice(0,5);
  S.items.forEach(i=>{if(i.type=="rec"&&i.date&&i.time&&!i.fired&&(i.date<d||(i.date==d&&i.time<=t))){i.fired=true;save();alarm(i)}})}
 setInterval(tick,15000);
 function notif(){"Notification"in window?Notification.requestPermission().then(p=>alert(p=="granted"?"Avisos activados":"Avisos bloqueados")):alert("Este equipo no permite avisos")}
+
+/* ===== Nube (Firebase): sincroniza Mío y Compartido ===== */
+const FBCFG={apiKey:"AIzaSyDp3Mf0mtdJ7JoEOhcnpDq8pymb6t0iwnQ",authDomain:"agenda-familiar-ffa6b.firebaseapp.com",projectId:"agenda-familiar-ffa6b",storageBucket:"agenda-familiar-ffa6b.firebasestorage.app",messagingSenderId:"506031078098",appId:"1:506031078098:web:a2fcc049dfe9eca5664b0b"};
+let FB=null,fdb=null,user=null,unsub=[],avisado=false;
+const clean=i=>{const{fl,fired,...r}=i;return r};
+const colFor=i=>i.sp=="comp"?["compartido"]:["usuarios",user.uid,"items"];
+function push(i){if(!user||!FB)return;FB.F.setDoc(FB.F.doc(fdb,...colFor(i),String(i.id)),clean(i)).catch(()=>{})}
+function rem(i){if(!user||!FB)return;FB.F.deleteDoc(FB.F.doc(fdb,...colFor(i),String(i.id))).catch(()=>{})}
+function lab(){$("#acc").textContent=user?"☁️ "+(user.displayName||user.email).split(" ")[0]:"☁️ Entrar"}
+const vencido=d=>{const n=new Date();return d.date&&d.time&&(d.date<ld(n)||(d.date==ld(n)&&d.time<=n.toTimeString().slice(0,5)))};
+function subs(){
+ unsub.forEach(f=>f());unsub=[];
+ const mk=(col,spx)=>FB.F.onSnapshot(FB.F.collection(fdb,...col),snap=>{
+  snap.docChanges().forEach(ch=>{
+   const d=ch.doc.data(),id=+ch.doc.id,i=S.items.findIndex(x=>x.id==id);
+   if(ch.type=="removed"){if(i>=0&&S.items[i].sp==spx)S.items.splice(i,1);return}
+   const old=S.items[i],same=old&&old.date==d.date&&old.time==d.time;
+   const n={...d,id,sp:spx,fl:old?old.fl||[]:[],fired:old?(same?old.fired:false):!!vencido(d)};
+   if(i>=0)S.items[i]=n;else S.items.push(n)});
+  save();render()},err=>{if(err.code=="permission-denied"&&!avisado){avisado=true;alert("Este correo no tiene permiso para el espacio Compartido. Hay que agregarlo en las reglas de Firebase.")}});
+ unsub.push(mk(["usuarios",user.uid,"items"],"mio"));
+ unsub.push(mk(["compartido"],"comp"));
+}
+async function initFB(){
+ try{
+  const B="https://www.gstatic.com/firebasejs/10.14.1/";
+  const A=await import(B+"firebase-app.js"),Au=await import(B+"firebase-auth.js"),F=await import(B+"firebase-firestore.js");
+  const app=A.initializeApp(FBCFG),auth=Au.getAuth(app);
+  fdb=F.initializeFirestore(app,{localCache:F.persistentLocalCache({tabManager:F.persistentMultipleTabManager()})});
+  FB={A,Au,F,auth};
+  Au.onAuthStateChanged(auth,u=>{
+   user=u;lab();unsub.forEach(f=>f());unsub=[];
+   if(!u)return;
+   if(!localStorage["up_"+u.uid]){S.items.forEach(push);localStorage["up_"+u.uid]=1}
+   subs();
+  });
+ }catch(e){}
+}
+async function acct(){
+ if(!FB){alert("Todavía no hay conexión con la nube. Revisa tu internet e inténtalo en unos segundos.");return}
+ if(!user){try{await FB.Au.signInWithPopup(FB.auth,new FB.Au.GoogleAuthProvider())}catch(e){alert("No se pudo entrar ("+(e.code||e.message)+")")}}
+ else if(confirm("Sesión: "+user.email+"\n¿Cerrar sesión?\nSe quitarán las notas de este equipo; siguen guardadas en la nube.")){
+  unsub.forEach(f=>f());unsub=[];S.items=[];save();await FB.Au.signOut(FB.auth);render();
+ }
+}
+initFB();
 
 if("serviceWorker"in navigator)navigator.serviceWorker.register("sw.js");
 render();tick();
