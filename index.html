@@ -52,9 +52,9 @@ dialog .row{display:flex;gap:8px}
 <div class="row"><div style="flex:1">Tipo<select id="ft"><option value="nota">📝 Nota</option><option value="lista">✅ Lista</option><option value="rec">⏰ Recordatorio</option></select></div>
 <div style="flex:1">Zona<select id="fz"></select></div></div>
 Espacio<select id="fs"><option value="mio">🔒 Mío (solo yo)</option><option value="comp">👥 Compartido</option></select>
-Título<input id="ti">
-Texto<textarea id="tx" rows="3"></textarea>
-Lista (un elemento por línea)<textarea id="ch" rows="3"></textarea>
+Título <button onclick="dictar('ti',this)" title="Dictar">🎤</button><input id="ti">
+Texto <button onclick="dictar('tx',this)" title="Dictar">🎤</button><textarea id="tx" rows="3"></textarea>
+Lista (un elemento por línea) <button onclick="dictar('ch',this)" title="Dictar">🎤</button><textarea id="ch" rows="3"></textarea>
 <div class="row"><div style="flex:1">Fecha<input type="date" id="dt"></div><div style="flex:1">Hora<input type="time" id="tm"></div></div>
 Prioridad<select id="pr"><option value="1">Normal</option><option value="2">Media</option><option value="3">🔥 Gran prioridad</option></select>
 Adjuntar archivos<input type="file" id="ff" multiple>
@@ -73,6 +73,8 @@ Oscuridad del fondo<input type="range" id="aov" min="30" max="95" oninput="apl(t
 Tipo de letra<select id="afn" onchange="apl(true)"></select>
 Tamaño de letra<input type="range" id="asz" min="80" max="150" step="5" oninput="apl(true)">
 <button onclick="sonar()" style="margin-bottom:10px">🔊 Probar alarma</button>
+<button onclick="respaldo()" style="margin-bottom:10px">💾 Guardar copia de respaldo</button>
+Restaurar copia de respaldo<input type="file" id="arf" accept=".json,application/json" onchange="restaurar(this.files[0]);this.value=''">
 <p>Así se verá tu texto en toda la agenda.</p>
 <button class="on" onclick="$('#aj').close()" style="width:100%">Listo</button></dialog>
 
@@ -250,6 +252,38 @@ async function exportar(f){
   }
   m.textContent="Listo. Revisa tus descargas.";
  }catch(e){m.textContent="No se pudo crear el archivo ("+(e.message||e)+"). Para Excel y PowerPoint, la primera vez se necesita internet."}
+}
+
+/* dictado por voz (Chrome: necesita internet y permiso de micrófono) */
+let rec=null;
+function dictar(id,btn){
+ const R=window.SpeechRecognition||window.webkitSpeechRecognition;
+ if(!R){alert("Este navegador no permite dictado por voz. Prueba con Chrome.");return}
+ if(rec){rec.stop();return}
+ rec=new R();rec.lang="es-CO";rec.continuous=true;rec.interimResults=false;btn.classList.add("on");
+ rec.onresult=e=>{let t="";for(let k=e.resultIndex;k<e.results.length;k++)if(e.results[k].isFinal)t+=e.results[k][0].transcript;
+  const el=$("#"+id),sep=id=="ch"?"\n":" ";el.value+=(el.value&&!/\s$/.test(el.value)?sep:"")+t.trim()};
+ rec.onerror=e=>alert(e.error=="not-allowed"?"Permite el micrófono en el navegador para poder dictar.":"No se pudo dictar ("+e.error+"). El dictado necesita internet.");
+ rec.onend=()=>{rec=null;btn.classList.remove("on")};
+ rec.start();
+}
+
+/* copia de respaldo (sin adjuntos) */
+function respaldo(){
+ const d={v:1,items:S.items.map(i=>{const{fired,fl,...r}=i;return r}),log:S.log,aj:AJ};
+ bajar(new Blob([JSON.stringify(d,null,1)],{type:"application/json"}),"agenda-respaldo-"+ld(new Date())+".json");
+}
+async function restaurar(f){
+ if(!f)return;
+ try{
+  const d=JSON.parse(await f.text());if(!Array.isArray(d.items))throw new Error("archivo no válido");
+  if(!confirm("Se agregarán o actualizarán "+d.items.length+" elementos con los de la copia. ¿Continuar?"))return;
+  d.items.forEach(n=>{const k=S.items.findIndex(x=>x.id==n.id),old=S.items[k];
+   const it={...n,fl:old?old.fl||[]:[],fired:old?old.fired:!!vencido(n)};
+   if(k>=0)S.items[k]=it;else S.items.push(it);push(it)});
+  if(Array.isArray(d.log))S.log=[...d.log,...S.log].slice(0,500);
+  log("Restauró copia de respaldo");save();render();alert("Copia restaurada.");
+ }catch(e){alert("No se pudo restaurar: "+(e.message||e))}
 }
 
 /* pasar a Google Calendar: avisa aunque la app esté cerrada */
