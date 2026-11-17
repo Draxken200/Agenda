@@ -8,10 +8,10 @@
 <style>
 :root{--r:#e11d2e;--card:rgba(18,18,18,.86);--tx:#f4f4f4;--mut:#a8a8a8}
 *{box-sizing:border-box}
-body{margin:0;font-family:"Comic Sans MS","Comic Sans","Chalkboard SE","Comic Neue",cursive;color:var(--tx);background:#000 url(fondo.jpg) center top/cover fixed;min-height:100vh;padding:env(safe-area-inset-top) 0 90px}
-body::before{content:"";position:fixed;inset:0;background:rgba(0,0,0,.74);z-index:-1}
+body{margin:0;font-family:var(--ff,"Comic Sans MS","Comic Sans","Chalkboard SE","Comic Neue",cursive);font-size:var(--fs,16px);color:var(--tx);background:#000 url(fondo.jpg) center top/cover fixed;min-height:100vh;padding:env(safe-area-inset-top) 0 90px}
+body::before{content:"";position:fixed;inset:0;background:rgba(0,0,0,var(--ov,.74));z-index:-1}
 header{display:flex;align-items:center;gap:8px;padding:12px 14px}
-h1{margin:0;font-size:22px;flex:1;color:var(--r)}
+h1{margin:0;font-size:1.4em;flex:1;color:var(--r)}
 button,select,input,textarea{font:inherit;color:var(--tx)}
 button{background:#1a1a1a;border:1px solid #444;border-radius:10px;padding:8px 12px;cursor:pointer}
 button.on{background:var(--r);border-color:var(--r)}
@@ -37,9 +37,9 @@ dialog::backdrop{background:rgba(0,0,0,.8)}
 dialog input,dialog select,dialog textarea{width:100%;background:#1a1a1a;border:1px solid #444;border-radius:8px;padding:8px;margin:4px 0 10px}
 dialog .row{display:flex;gap:8px}
 .hi{display:flex;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid #333}
-.hi span{flex:1;font-size:14px}
+.hi span{flex:1;font-size:.9em}
 </style></head><body>
-<header><h1>Mi Agenda</h1><button id="acc" onclick="acct()">☁️ Entrar</button><button onclick="notif()" title="Activar avisos">🔔</button><button onclick="hist()" title="Historial">🕘</button></header>
+<header><h1>Mi Agenda</h1><button onclick="openAj()" title="Apariencia">⚙️</button><button id="acc" onclick="acct()">☁️ Entrar</button><button onclick="notif()" title="Activar avisos">🔔</button><button onclick="hist()" title="Historial">🕘</button></header>
 <div class="bar" id="sp"></div>
 <div class="bar" id="zn"></div>
 <div id="hot" hidden></div>
@@ -66,6 +66,15 @@ Tomar foto<input type="file" id="fc" accept="image/*" capture="environment">
 <dialog id="hd"><b>Historial</b><div id="hl"></div>
 <div class="row" style="margin-top:10px"><button onclick="S.log=[];save();hist()" style="flex:1">Borrar todo</button><button onclick="hd.close()" style="flex:1">Cerrar</button></div></dialog>
 
+<dialog id="aj"><b>⚙️ Apariencia</b><br><br>
+Fondo de pantalla (elige una imagen de tu galería)<input type="file" id="afi" accept="image/*" onchange="setFondo(this.files[0])">
+<button onclick="resetFondo()" style="margin-bottom:10px">Volver al fondo original</button><br>
+Oscuridad del fondo<input type="range" id="aov" min="30" max="95" oninput="apl(true)">
+Tipo de letra<select id="afn" onchange="apl(true)"></select>
+Tamaño de letra<input type="range" id="asz" min="80" max="150" step="5" oninput="apl(true)">
+<p>Así se verá tu texto en toda la agenda.</p>
+<button class="on" onclick="$('#aj').close()" style="width:100%">Listo</button></dialog>
+
 <script>
 const $=s=>document.querySelector(s),dlg=$("#dlg"),hd=$("#hd");
 const ZONES=["Universidad","Casa","Trabajo","Personal"];
@@ -87,7 +96,7 @@ const card=i=>`<div class="card p${i.pr}"><b>${{nota:"📝",lista:"✅",rec:"⏰
 ${i.text?`<p>${esc(i.text)}</p>`:""}
 ${(i.chk||[]).map((c,n)=>`<label><input type="checkbox" ${c.d?"checked":""} onchange="tg(${i.id},${n})"><span class="${c.d?"dn":""}">${esc(c.t)}</span></label>`).join("")}
 <div class="fl" id="f${i.id}"></div>
-<div class="ac"><button onclick="openF(${i.id})">Editar</button><button onclick="del(${i.id})">Borrar</button></div></div>`;
+<div class="ac"><button onclick="openF(${i.id})">Editar</button>${i.date?`<button onclick="gcal(${i.id})">📅 Calendar</button>`:""}<button onclick="del(${i.id})">Borrar</button></div></div>`;
 
 function render(){
  $("#sp").innerHTML=[["mio","🔒 Mío"],["comp","👥 Compartido"]].map(([k,l])=>`<button class="${sp==k?"on":""}" onclick="sp='${k}';render()">${l}</button>`).join("");
@@ -143,6 +152,43 @@ function tick(){const n=new Date(),d=ld(n),t=n.toTimeString().slice(0,5);
 setInterval(tick,15000);
 function notif(){"Notification"in window?Notification.requestPermission().then(p=>alert(p=="granted"?"Avisos activados":"Avisos bloqueados")):alert("Este equipo no permite avisos")}
 
+/* apariencia: fondo, letra y tamaño (se guardan en este equipo) */
+const FUENTES={"Comic Sans (original)":'"Comic Sans MS","Comic Sans","Chalkboard SE","Comic Neue",cursive',"Normal":'system-ui,"Segoe UI",Roboto,Arial,sans-serif',"Verdana":'Verdana,Geneva,sans-serif',"Trebuchet":'"Trebuchet MS",sans-serif',"Georgia (con serifa)":'Georgia,serif',"Máquina de escribir":'"Courier New",monospace'};
+let AJ={fn:"Comic Sans (original)",sz:100,ov:74},fondoURL=null;
+try{AJ={...AJ,...JSON.parse(localStorage.ajustes)}}catch(e){}
+function apl(ui){
+ if(ui){AJ.fn=$("#afn").value;AJ.sz=+$("#asz").value;AJ.ov=+$("#aov").value;try{localStorage.ajustes=JSON.stringify(AJ)}catch(e){}}
+ const r=document.documentElement.style;
+ r.setProperty("--ff",FUENTES[AJ.fn]||FUENTES["Comic Sans (original)"]);r.setProperty("--fs",(16*AJ.sz/100)+"px");r.setProperty("--ov",AJ.ov/100);
+}
+async function aplFondo(){
+ const b=await fget("fondo").catch(()=>null);
+ if(fondoURL){URL.revokeObjectURL(fondoURL);fondoURL=null}
+ if(b){fondoURL=URL.createObjectURL(b);document.body.style.backgroundImage='url("'+fondoURL+'")'}else document.body.style.backgroundImage="";
+}
+async function setFondo(f){
+ if(!f)return;
+ try{const bm=await createImageBitmap(f),k=Math.min(1,1600/Math.max(bm.width,bm.height)),c=document.createElement("canvas");
+  c.width=Math.round(bm.width*k);c.height=Math.round(bm.height*k);c.getContext("2d").drawImage(bm,0,0,c.width,c.height);
+  const b=await new Promise(r=>c.toBlob(r,"image/jpeg",.85));await fput("fondo",b);aplFondo()}
+ catch(e){alert("No se pudo usar esa imagen. Prueba con otra (JPG o PNG).")}
+}
+async function resetFondo(){await fdel("fondo");$("#afi").value="";aplFondo()}
+function openAj(){
+ $("#afn").innerHTML=Object.keys(FUENTES).map(k=>`<option ${k==AJ.fn?"selected":""}>${k}</option>`).join("");
+ $("#asz").value=AJ.sz;$("#aov").value=AJ.ov;$("#afi").value="";$("#aj").showModal();
+}
+
+/* pasar a Google Calendar: avisa aunque la app esté cerrada */
+function gcal(id){
+ const i=S.items.find(x=>x.id==id);if(!i||!i.date)return;
+ const p=n=>String(n).padStart(2,"0"),f=d=>d.getFullYear()+p(d.getMonth()+1)+p(d.getDate());
+ let dates;
+ if(i.time){const a=new Date(i.date+"T"+i.time),b=new Date(a.getTime()+3600000),g=d=>f(d)+"T"+p(d.getHours())+p(d.getMinutes())+"00";dates=g(a)+"/"+g(b)}
+ else{const a=new Date(i.date+"T00:00"),b=new Date(a.getTime()+86400000);dates=f(a)+"/"+f(b)}
+ const det=[i.text,...(i.chk||[]).map(c=>"- "+c.t)].filter(Boolean).join("\n");
+ window.open("https://calendar.google.com/calendar/render?action=TEMPLATE&text="+encodeURIComponent(i.title)+"&dates="+dates+"&details="+encodeURIComponent(det),"_blank");
+}
 /* ===== Nube (Firebase): sincroniza Mío y Compartido ===== */
 const FBCFG={apiKey:"AIzaSyDp3Mf0mtdJ7JoEOhcnpDq8pymb6t0iwnQ",authDomain:"agenda-familiar-ffa6b.firebaseapp.com",projectId:"agenda-familiar-ffa6b",storageBucket:"agenda-familiar-ffa6b.firebasestorage.app",messagingSenderId:"506031078098",appId:"1:506031078098:web:a2fcc049dfe9eca5664b0b"};
 let FB=null,fdb=null,user=null,unsub=[],avisado=false;
@@ -190,5 +236,5 @@ async function acct(){
 initFB();
 
 if("serviceWorker"in navigator)navigator.serviceWorker.register("sw.js");
-render();tick();
+apl();aplFondo();render();tick();
 </script></body></html>
