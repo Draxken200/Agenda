@@ -72,6 +72,7 @@ Fondo de pantalla (elige una imagen de tu galería)<input type="file" id="afi" a
 Oscuridad del fondo<input type="range" id="aov" min="30" max="95" oninput="apl(true)">
 Tipo de letra<select id="afn" onchange="apl(true)"></select>
 Tamaño de letra<input type="range" id="asz" min="80" max="150" step="5" oninput="apl(true)">
+<button onclick="sonar()" style="margin-bottom:10px">🔊 Probar alarma</button>
 <p>Así se verá tu texto en toda la agenda.</p>
 <button class="on" onclick="$('#aj').close()" style="width:100%">Listo</button></dialog>
 
@@ -143,10 +144,18 @@ function hE(n){const t=prompt("Editar texto",S.log[n].t);if(t!==null){S.log[n].t
 function hD(n){S.log.splice(n,1);save();hist()}
 
 /* recordatorios tipo alarma (suenan mientras la app está abierta) */
-function beep(){try{const c=new AudioContext();[0,.4,.8].forEach(t=>{const o=c.createOscillator();o.connect(c.destination);o.frequency.value=880;o.start(c.currentTime+t);o.stop(c.currentTime+t+.25)})}catch(e){}}
-function alarm(i){beep();navigator.vibrate&&navigator.vibrate([400,200,400,200,400]);
- if("Notification"in window&&Notification.permission=="granted")new Notification("⏰ "+i.title,{body:i.text||""});
- $("#al").innerHTML=`⏰ ${esc(i.title)} <button onclick="this.parentNode.hidden=true">Listo</button>`;$("#al").hidden=false;log("Sonó recordatorio: "+i.title)}
+let AC=null,alTimer=null;
+function ctx(){if(!AC){try{AC=new(window.AudioContext||window.webkitAudioContext)()}catch(e){}}if(AC&&AC.state=="suspended")AC.resume();return AC}
+document.addEventListener("click",ctx,{once:true});
+function beep(){const c=ctx();if(!c)return;const g=c.createGain();g.gain.value=1;g.connect(c.destination);
+ [0,.3,.6,.9,1.2,1.5].forEach((t,n)=>{const o=c.createOscillator();o.type="square";o.frequency.value=n%2?660:990;o.connect(g);o.start(c.currentTime+t);o.stop(c.currentTime+t+.25)})}
+function sonar(){beep();navigator.vibrate&&navigator.vibrate([500,200,500,200,500])}
+function stopAl(){clearInterval(alTimer);alTimer=null;navigator.vibrate&&navigator.vibrate(0)}
+function alarm(i){
+ stopAl();sonar();let n=0;alTimer=setInterval(()=>{if(++n>=20)stopAl();else sonar()},2500);
+ try{if("Notification"in window&&Notification.permission=="granted"){
+  navigator.serviceWorker.ready.then(r=>r.showNotification("⏰ "+i.title,{body:i.text||"",vibrate:[500,200,500],requireInteraction:true,tag:"rec"+i.id})).catch(()=>{try{new Notification("⏰ "+i.title,{body:i.text||""})}catch(e){}})}}catch(e){}
+ $("#al").innerHTML=`⏰ ${esc(i.title)} <button onclick="this.parentNode.hidden=true;stopAl()">Listo</button>`;$("#al").hidden=false;log("Sonó recordatorio: "+i.title)}
 function tick(){const n=new Date(),d=ld(n),t=n.toTimeString().slice(0,5);
  S.items.forEach(i=>{if(i.type=="rec"&&i.date&&i.time&&!i.fired&&(i.date<d||(i.date==d&&i.time<=t))){i.fired=true;save();alarm(i)}})}
 setInterval(tick,15000);
