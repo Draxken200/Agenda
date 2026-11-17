@@ -39,7 +39,7 @@ dialog .row{display:flex;gap:8px}
 .hi{display:flex;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid #333}
 .hi span{flex:1;font-size:.9em}
 </style></head><body>
-<header><h1>Mi Agenda</h1><button onclick="openAj()" title="Apariencia">⚙️</button><button id="acc" onclick="acct()">☁️ Entrar</button><button onclick="notif()" title="Activar avisos">🔔</button><button onclick="hist()" title="Historial">🕘</button></header>
+<header><h1>Mi Agenda</h1><button onclick="openX()" title="Exportar">⬇️</button><button onclick="openAj()" title="Apariencia">⚙️</button><button id="acc" onclick="acct()">☁️ Entrar</button><button onclick="notif()" title="Activar avisos">🔔</button><button onclick="hist()" title="Historial">🕘</button></header>
 <div class="bar" id="sp"></div>
 <div class="bar" id="zn"></div>
 <div id="hot" hidden></div>
@@ -75,6 +75,14 @@ Tamaño de letra<input type="range" id="asz" min="80" max="150" step="5" oninput
 <button onclick="sonar()" style="margin-bottom:10px">🔊 Probar alarma</button>
 <p>Así se verá tu texto en toda la agenda.</p>
 <button class="on" onclick="$('#aj').close()" style="width:100%">Listo</button></dialog>
+
+<dialog id="xd"><b>⬇️ Exportar</b><br><br>
+Zona<select id="xz"></select>
+Espacio<select id="xe"><option value="ambos">Mío y Compartido</option><option value="mio">Solo Mío</option><option value="comp">Solo Compartido</option></select>
+Qué incluir<select id="xp"><option value="t">Todo</option><option value="p">Solo pendientes</option></select>
+<div class="row"><button class="on" onclick="exportar('xlsx')" style="flex:1">Excel</button><button class="on" onclick="exportar('doc')" style="flex:1">Word</button><button class="on" onclick="exportar('ppt')" style="flex:1">PowerPoint</button></div>
+<p id="xm" class="mut"></p>
+<button onclick="$('#xd').close()" style="width:100%">Cerrar</button></dialog>
 
 <script>
 const $=s=>document.querySelector(s),dlg=$("#dlg"),hd=$("#hd");
@@ -186,6 +194,62 @@ async function resetFondo(){await fdel("fondo");$("#afi").value="";aplFondo()}
 function openAj(){
  $("#afn").innerHTML=Object.keys(FUENTES).map(k=>`<option ${k==AJ.fn?"selected":""}>${k}</option>`).join("");
  $("#asz").value=AJ.sz;$("#aov").value=AJ.ov;$("#afi").value="";$("#aj").showModal();
+}
+
+/* exportar por zona a Excel, Word y PowerPoint (solo texto) */
+const TIPO={nota:"Nota",lista:"Lista",rec:"Recordatorio"},PRI=["","Normal","Media","Alta"];
+const U_X="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js",U_P="https://cdnjs.cloudflare.com/ajax/libs/pptxgenjs/3.12.0/pptxgen.bundle.js";
+const cargar=u=>new Promise((ok,no)=>{const e=document.createElement("script");e.src=u;e.onload=ok;e.onerror=()=>no(new Error("sin internet"));document.head.appendChild(e)});
+function bajar(b,n){const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=n;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},3000)}
+function openX(){$("#xz").innerHTML=["Todas",...ZONES].map(z=>`<option>${z}</option>`).join("");$("#xz").value=zn;$("#xe").value=sp;$("#xm").textContent="";$("#xd").showModal()}
+function datosExp(){
+ const z=$("#xz").value,e=$("#xe").value,pend=$("#xp").value=="p",hoy=ld(new Date());
+ let L=S.items.filter(i=>(z=="Todas"||i.zn==z)&&(e=="ambos"||i.sp==e)).map(i=>{const c=i.chk||[];return{...i,chk:pend?c.filter(x=>!x.d):c,tot:c.length,hechos:c.filter(x=>x.d).length}});
+ if(pend)L=L.filter(i=>i.type=="lista"?i.chk.length:i.type=="rec"?(!i.date||i.date>=hoy):true);
+ L.sort((a,b)=>(a.zn+(a.date||"9")+(a.time||""))>(b.zn+(b.date||"9")+(b.time||""))?1:-1);
+ return{z,L};
+}
+const meta=i=>[i.sp=="comp"?"Compartido":"Mío",i.date,i.time,i.pr>1?"Prioridad "+PRI[i.pr]:""].filter(Boolean).join(" · ");
+function docHTML(L,z){
+ const h=t=>esc(t).replace(/\n/g,"<br>");let o=`<h1 style="color:#c1121f">Mi Agenda — ${esc(z)}</h1><p>Generado el ${new Date().toLocaleString()}</p>`,zz="";
+ L.forEach(i=>{if(i.zn!=zz){zz=i.zn;o+=`<h2>${esc(zz)}</h2>`}
+  o+=`<h3>${TIPO[i.type]}: ${esc(i.title)}</h3><p><i>${esc(meta(i))}</i></p>`;
+  if(i.text)o+=`<p>${h(i.text)}</p>`;
+  if(i.chk.length)o+="<ul>"+i.chk.map(c=>`<li>${c.d?"☑":"☐"} ${esc(c.t)}</li>`).join("")+"</ul>"});
+ return `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>Agenda</title></head><body style="font-family:'Comic Sans MS',Arial">${o}</body></html>`;
+}
+async function exportar(f){
+ const{z,L}=datosExp(),m=$("#xm");
+ if(!L.length){m.textContent="No hay nada para exportar con esa selección.";return}
+ const nom="Agenda-"+z+"-"+ld(new Date());
+ try{
+  m.textContent="Preparando el archivo…";
+  if(f=="xlsx"){
+   if(!window.XLSX)await cargar(U_X);
+   const wb=XLSX.utils.book_new();
+   (z=="Todas"?[...new Set(L.map(i=>i.zn))]:[z]).forEach(zz=>{
+    const rows=[["Espacio","Tipo","Título","Texto","Lista","Fecha","Hora","Prioridad","Avance"]];
+    L.filter(i=>i.zn==zz).forEach(i=>rows.push([i.sp=="comp"?"Compartido":"Mío",TIPO[i.type],i.title,i.text||"",i.chk.map(c=>(c.d?"☑ ":"☐ ")+c.t).join("\n"),i.date||"",i.time||"",PRI[i.pr]||"",i.tot?i.hechos+" de "+i.tot:""]));
+    const ws=XLSX.utils.aoa_to_sheet(rows);ws["!cols"]=[12,14,28,40,40,12,8,10,10].map(w=>({wch:w}));XLSX.utils.book_append_sheet(wb,ws,zz.slice(0,31))});
+   XLSX.writeFile(wb,nom+".xlsx");
+  }else if(f=="doc"){
+   bajar(new Blob(["\ufeff"+docHTML(L,z)],{type:"application/msword"}),nom+".doc");
+  }else{
+   if(!window.PptxGenJS)await cargar(U_P);
+   const P=new PptxGenJS(),F="Comic Sans MS";P.layout="LAYOUT_WIDE";
+   let sl=P.addSlide();sl.background={color:"000000"};
+   sl.addText("Mi Agenda — "+z,{x:.6,y:2.3,w:12,h:1.2,fontSize:40,bold:true,color:"E11D2E",fontFace:F});
+   sl.addText(L.length+" elementos · "+new Date().toLocaleDateString(),{x:.6,y:3.6,w:12,h:.6,fontSize:20,color:"FFFFFF",fontFace:F});
+   L.forEach(i=>{sl=P.addSlide();sl.background={color:"000000"};
+    sl.addText(TIPO[i.type]+": "+i.title,{x:.6,y:.4,w:12,h:.9,fontSize:30,bold:true,color:"E11D2E",fontFace:F,fit:"shrink"});
+    const t=[{text:i.zn+" · "+meta(i),options:{color:"AAAAAA",breakLine:true}}];
+    if(i.text)t.push({text:i.text,options:{breakLine:true}});
+    i.chk.forEach(c=>t.push({text:(c.d?"☑ ":"☐ ")+c.t,options:{breakLine:true}}));
+    sl.addText(t,{x:.6,y:1.5,w:12,h:5.4,fontSize:20,color:"FFFFFF",fontFace:F,valign:"top",fit:"shrink"})});
+   await P.writeFile({fileName:nom+".pptx"});
+  }
+  m.textContent="Listo. Revisa tus descargas.";
+ }catch(e){m.textContent="No se pudo crear el archivo ("+(e.message||e)+"). Para Excel y PowerPoint, la primera vez se necesita internet."}
 }
 
 /* pasar a Google Calendar: avisa aunque la app esté cerrada */
